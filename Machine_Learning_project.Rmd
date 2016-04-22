@@ -1,0 +1,139 @@
+---
+title: "Machine Learning Project"
+author: "Alison Hawthorne"
+date: "21 April 2016"
+---
+
+##Executive Summary: 
+
+This paper looks at weight-lifting data for 6 subjects performing bicep curls in 5 different manners (only one of which was correct). The aim of this project was to analyse the data to allow a prediction from the data for a similar dataset to determine which of the ways the exercise was performed. 
+
+The data was firstly split into two parts to allow training and testing via cross validation. Then the data was explored and pre-processed to identify the best variables with which to predict. I removed variables with near zero variance and variables that had very few observations against them. This cut-down the number of potential predictors from 159 to 53.
+
+After some experimentation, I decided to use PCA and random forests to create my model. As there were so many variables, PCA provided a good method of determining which to use. Random forests was used for modelling to maximise accuracy in such a complex dataset. I checked for the potential drawback of overfitting by testing on my untouched test set. This still had excellent accuracy, hence this model was chosen.
+
+##Cross Validation:
+
+I read in the data and split the training set into two parts for my training and cross validation. I checked that the both datasets had a spread of data for all of the 6 subjects.
+
+```{r echo=TRUE}
+        ##read in the data
+        training <- read.csv("pml-training.csv",stringsAsFactors = FALSE)
+        testing <- read.csv("pml-testing.csv",stringsAsFactors = FALSE)
+        ##load the r libraries needed
+        library(caret)
+        library(dplyr)
+        library(mice)
+        
+        
+        set.seed(3212)
+        ##partition the training set into training and test for cross validation
+        intrain <- createDataPartition(y = training$classe, p = 0.7, list=FALSE)
+        mytrain <- training[intrain,]
+        mytest <- training[-intrain,]
+        
+```
+
+
+##Pre-processing:
+
+I firstly made the classe and user_name variables factor variables, as this seemed prudent.
+
+```{r echo=TRUE}
+        ##make the classe variable and user name variables factor variables
+        training$classe <- as.factor(training$classe)
+        training$user_name <- as.factor(training$user_name)
+```
+
+There were 160 variables, which was somewhat intimidating! I decided to initially remove all variables will near zero variance, to try to reduce the number.
+I also removed the timestamp data as I found it spurious and could not work out how to interpret it usefully.
+
+```{r echo=TRUE}
+        ##let's remove near zero covariates to try and get a reasonable number of predictors:
+        nsv <- nearZeroVar(mytrain)
+        mytrain2 <- mytrain[,-nsv]
+        ##get rid of the timestamps as I can't see how to usefully use this
+        mytrain2 <- mytrain2[,-(3:7)]
+```
+
+On investigation, I discovered that the remaining variables were either almost complete or almost empty. I thus decided to cut down yet further on my variables by removing the near empty ones. It seems to me that a variable that is only present for a small number of observations, is of little use in prediction.
+
+```{r echo=TRUE}
+        ##a function to discover how empty each column is
+        pMiss <- function(x){sum(is.na(x))/length(x)*100}
+        emptycolumns <- apply(mytrain2,2,pMiss)
+        
+        plot(emptycolumns, main="Variable completeness", ylab="% of observations present for variable",
+        xlab = "")
+        ##plotting shows that the variables are either complete or almost entirely empty.
+        ##Therefore I am going to dump the columns that aren't complete
+        ##a function to find columns that are complete
+        colComp <- function(x){
+                ##initiate empty vector to store the column positions that are full columns
+                mycols <- vector("integer")
+                for (i in seq_len(ncol(x))) {
+                        ##if the column is complete, add its position to the vectos
+                        if ((sum(is.na(x[,i]))) == 0) {
+                                mycols <- c(mycols,i)
+                        }
+                        
+                }
+                return(mycols)
+        }
+        
+        mycompcols <- colComp(mytrain2)
+        mytrain2 <- mytrain2[,mycompcols]
+```        
+
+I examined some of my remaining predictors to see if I could ascertain any further information with which to decide on a model. I could see no obvious linear relationships and was not confident enough to cut the variables any further. The appendix contains a plot that is an example of one of my examinations.
+
+I also pre-processed my test set by removing the near zero variables as identified in my training set and the same variables identified as near empty in the training set.
+
+```{r echo=TRUE}
+        ##let's preprocess the test set so we can predict on it
+        mytest2 <- mytest[,-nsv]
+        mytest2 <- mytest2[,-(3:7)]
+        mytest2 <- mytest2[,mycompcols]
+```
+
+##Modelling:
+As discussed above, I decided to use PCA to pre-process my potential 53 predictors further and used random forests as the model as this maximised accuracy. When I cross-validated the model against my untouched test set, I discovered that the accuracy was still very high and thus this is my model of choice.
+
+I have suppressed the code where I fit the model to remove the warning messages. However, for information it is as follows: 
+modelFit <- train(classe ~., method="rf", preProcess="pca", data=mytrain2)
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+        modelFit <- train(classe ~., method="rf", preProcess="pca", data=mytrain2)
+       
+```
+
+
+
+```{r echo=FALSE}
+        plot(modelFit)
+        ##finmod <- modelFit$finalModel
+        modelFit$finalModel
+```
+
+
+
+##Outcome:
+The real test was how the model would predict the classe variable against the test set. As you can see, the accuracy is still excellent at 98.73%. So the out of sample error is very low at 1 - 0.9873 = 1.127%.
+
+```{r echo=TRUE}
+        mypredictions <- predict(modelFit, newdata=mytest2)
+        confusionMatrix(mypredictions, mytest2$classe)
+```
+
+##References: 
+
+http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+##Appendix
+A example of my data exploration:
+
+```{r fig.height=10}
+        featurePlot(x=mytrain2[,c("classe","total_accel_forearm","roll_arm", "gyros_belt_x",
+                                  "magnet_dumbbell_z")],y=mytrain2$classe,plot="pairs")
+```
